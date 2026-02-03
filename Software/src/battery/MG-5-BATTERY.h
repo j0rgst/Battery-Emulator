@@ -84,8 +84,8 @@ class Mg5Battery : public CanBattery {
   unsigned long uds_req_started_ms = 0;
   unsigned long uds_timeout_ms = 0;
   const unsigned long UDS_PID_REFRESH_MS = 500;         // inter-request gap
-  const unsigned long UDS_TIMEOUT_BEFORE_FF_MS = 1100;  // no reply yet
-  const unsigned long UDS_TIMEOUT_AFTER_FF_MS = 1100;   // multi-frame in progress
+  const unsigned long UDS_TIMEOUT_BEFORE_FF_MS = 310;  // no reply yet
+  const unsigned long UDS_TIMEOUT_AFTER_FF_MS = 310;   // multi-frame in progress
   const unsigned long UDS_TIMEOUT_AFTER_BOOT = 2000;    // DELAY TO START UDS AFTER BOOT-UP
   const unsigned long TESTER_PRESENT_PERIOD_MS = 1000;  // ~1 s
 
@@ -100,8 +100,15 @@ class Mg5Battery : public CanBattery {
     unsigned long UDS_lastFrameMillis;  // Timestamp of last frame (for timeouts, if desired)
   } UDS_RxContext;
 
-  // A single global UDS context, since only one module can respond at a time
+    // A single global UDS context, since only one module can respond at a time
   UDS_RxContext gUDSContext;
+
+  // variable to hold UDS address
+  uint16_t uds_address;
+
+  //default UDS address for different models
+  static const uint16_t MG5_UDS_SEND_ADDRESS = 0x781;
+  
 
   //0x781 UDS diagnostic requests - Extended Session Control
   CAN_frame MG5_781_ses_ctrl = {.FD = false,

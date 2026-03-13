@@ -549,8 +549,8 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
                 case 0xB061: {
                   float soh = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]);
                   (void)soh;
-                  logging.print("single frame UDS ReadDataByIdentifier state of health: ");
-                  logging.println (soh*0.01f);
+                  //logging.print("single frame UDS ReadDataByIdentifier state of health: ");
+                  //logging.println (soh*0.01f);
                   datalayer.battery.status.soh_pptt = soh;
                   break;
                 }

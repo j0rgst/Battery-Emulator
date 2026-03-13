@@ -9,13 +9,6 @@
 
 #ifndef SMALL_FLASH_DEVICE
 
-/* TODO: 
-- Get contactor closing working
-- Figure out which CAN messages need to be sent towards the battery to keep it alive
-- Map all values from battery CAN messages
-- Most important ones 
-*/
-
 inline const char* getBMStatus(int index) {
   switch (index) {
     case 0:
@@ -174,6 +167,11 @@ void Mg5Battery::startUDSMultiFrameReception(uint16_t totalLength, uint8_t modul
   gUDSContext.receivedInBatch = 0;
   memset(gUDSContext.UDS_buffer, 0, sizeof(gUDSContext.UDS_buffer));
   gUDSContext.UDS_lastFrameMillis = millis();  // if you want to track timeouts
+}
+
+void Mg5Battery::transmit_can_frame_MG(CAN_frame *frame) {
+  frame->ID = uds_address;
+  transmit_can_frame(frame);
 }
 
 bool Mg5Battery::storeUDSPayload(const uint8_t* payload, uint8_t length) {
@@ -377,6 +375,17 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
                 logging.print(uds_address, HEX);
                 logging.print("entered ");
                 logging.println(sub == 0x03 ? "extended diagnostic session" : "default session");
+                if(uds_address == MG5_UDS_SEND_ADDRESS){
+                  logging.println("detected MG5");
+                }
+                else{
+                  if(uds_address == MG_MARVEL_R_UDS_SEND_ADDRESS){
+                    logging.println("detected MG Marvel R");
+                  }
+                  else{
+                    logging.println("unkown battery");
+                  }
+                }
 
                 // mark this UDS transaction done
                 uds_tx_in_flight = false;
@@ -540,8 +549,8 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
                 case 0xB061: {
                   float soh = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]);
                   (void)soh;
-                  //logging.print("single frame UDS ReadDataByIdentifier state of health: ");
-                  //logging.println (soh*0.01f);
+                  logging.print("single frame UDS ReadDataByIdentifier state of health: ");
+                  logging.println (soh*0.01f);
                   datalayer.battery.status.soh_pptt = soh;
                   break;
                 }
@@ -572,8 +581,7 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
               if (toStore)
                 storeUDSPayload(&rx_frame.data.u8[2], toStore);
 
-              MG5_781_RQ_CONTINUE_MULTIFRAME.ID = uds_address;
-              transmit_can_frame(&MG5_781_RQ_CONTINUE_MULTIFRAME);
+              transmit_can_frame_MG(&MG5_781_RQ_CONTINUE_MULTIFRAME);
               uds_timeout_ms = UDS_TIMEOUT_AFTER_FF_MS;  // extend while MF running
             }
             break;
@@ -590,8 +598,7 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
 
             gUDSContext.receivedInBatch++;
             if (gUDSContext.receivedInBatch == 3) {
-              MG5_781_RQ_CONTINUE_MULTIFRAME.ID = uds_address;
-              transmit_can_frame(&MG5_781_RQ_CONTINUE_MULTIFRAME);
+              transmit_can_frame_MG(&MG5_781_RQ_CONTINUE_MULTIFRAME);
               gUDSContext.receivedInBatch = 0;
             }
 
@@ -691,8 +698,7 @@ void Mg5Battery::transmit_can(unsigned long currentMillis) {
 
   if (uds_tx_in_flight == false) {     // No UDS transaction is in progress
     if (userRequestReadDTC == true) {  // DTC requested by user
-      MG5_781_RQ_DTCs.ID = uds_address;
-      transmit_can_frame(&MG5_781_RQ_DTCs);
+      transmit_can_frame_MG(&MG5_781_RQ_DTCs);
       uds_tx_in_flight = true;                    //singal that a UDS transaction is in progress
       uds_req_started_ms = currentMillis;         //timestamp when request was sent for timeout tracking
       uds_timeout_ms = UDS_TIMEOUT_BEFORE_FF_MS;  //increase timeout for multi-frame response
@@ -700,8 +706,7 @@ void Mg5Battery::transmit_can(unsigned long currentMillis) {
 
     } else {
       if (userRequestClearDTC == true) {  // Clear DTC requested by user
-        MG5_781_CLEAR_DTCs.ID = uds_address;
-        transmit_can_frame(&MG5_781_CLEAR_DTCs);
+        transmit_can_frame_MG(&MG5_781_CLEAR_DTCs);
         uds_tx_in_flight = true;                    //singal that a UDS transaction is in progress
         uds_req_started_ms = currentMillis;         //timestamp when request was sent for timeout tracking
         uds_timeout_ms = UDS_TIMEOUT_BEFORE_FF_MS;  //increase timeout for multi-frame response
@@ -711,9 +716,8 @@ void Mg5Battery::transmit_can(unsigned long currentMillis) {
         if (currentMillis - previousMillisPID >= UDS_PID_REFRESH_MS) {
           previousMillisPID = currentMillis;
           // normal single-frame poll round-robin
-          MG5_781_RQ_BAT_SOH.ID = uds_address;
           uds_slow_req_id_counter = increment_uds_req_id_counter(uds_slow_req_id_counter, numSlowUDSreqs);
-          transmit_can_frame(UDS_REQUESTS_SLOW[uds_slow_req_id_counter]);
+          transmit_can_frame_MG(UDS_REQUESTS_SLOW[uds_slow_req_id_counter]);
           uds_tx_in_flight = true;
           uds_req_started_ms = currentMillis;
           uds_timeout_ms = UDS_TIMEOUT_BEFORE_FF_MS;
@@ -724,10 +728,14 @@ void Mg5Battery::transmit_can(unsigned long currentMillis) {
     // Timeout / retry Session Control ------------------------------------
     if ((currentMillis - uds_req_started_ms) > uds_timeout_ms) {
       // re-enter Extended Session
-      uds_address = uds_address+1;  // try next address in case ECU changed address after session change
-      if(uds_address > 0x7EF) uds_address = 0x7D9; // wrap around if we go past common addresses
-      MG5_781_ses_ctrl.ID = uds_address;
-      transmit_can_frame(&MG5_781_ses_ctrl);
+      // change UDS to other battery model to see if this works
+      if(uds_address == MG5_UDS_SEND_ADDRESS) {
+        uds_address = MG_MARVEL_R_UDS_SEND_ADDRESS;
+      }
+      else {
+        uds_address = MG5_UDS_SEND_ADDRESS;  
+      }
+      transmit_can_frame_MG(&MG5_781_ses_ctrl);
       uds_tx_in_flight = true;
       uds_req_started_ms = currentMillis;
       uds_timeout_ms = UDS_TIMEOUT_BEFORE_FF_MS;
@@ -744,8 +752,8 @@ void Mg5Battery::setup(void) {  // Performs one time setup at startup
   datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
   datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
   datalayer.battery.info.total_capacity_Wh = TOTAL_BATTERY_CAPACITY_WH;
-  datalayer.battery.info.number_of_cells = 96;
-  uds_address = 0x7D9;  // start with the most common address, will cycle through if no response
+  datalayer.battery.info.number_of_cells = MG5_MARVEL_R_NUM_CELLS;
+  uds_address = MG5_UDS_SEND_ADDRESS; // default to MG UDS adress
   uds_tx_in_flight = true;                  // Make sure UDS doesn't start right away
   uds_req_started_ms = millis();            // prevent immediate timeout
   uds_timeout_ms = UDS_TIMEOUT_AFTER_BOOT;  // initial delay to restart UDS after boot-up

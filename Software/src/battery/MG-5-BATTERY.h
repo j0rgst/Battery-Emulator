@@ -18,6 +18,7 @@ class Mg5Battery : public CanBattery {
   void buildMG5_8AFrame();
   bool isUDSMessageComplete();
   virtual void print_formatted_dtc(uint32_t dtc24, uint8_t status);
+  virtual void transmit_can_frame_MG(CAN_frame *frame);
   bool supports_contactor_close() { return true; }
   virtual bool supports_read_DTC() { return true; }
   virtual bool supports_reset_DTC() { return true; }
@@ -83,7 +84,7 @@ class Mg5Battery : public CanBattery {
   bool contactorClosed = false;
   unsigned long uds_req_started_ms = 0;
   unsigned long uds_timeout_ms = 0;
-  const unsigned long UDS_PID_REFRESH_MS = 500;         // inter-request gap
+  const unsigned long UDS_PID_REFRESH_MS = 310;         // inter-request gap
   const unsigned long UDS_TIMEOUT_BEFORE_FF_MS = 310;  // no reply yet
   const unsigned long UDS_TIMEOUT_AFTER_FF_MS = 310;   // multi-frame in progress
   const unsigned long UDS_TIMEOUT_AFTER_BOOT = 2000;    // DELAY TO START UDS AFTER BOOT-UP
@@ -108,8 +109,11 @@ class Mg5Battery : public CanBattery {
 
   //default UDS address for different models
   static const uint16_t MG5_UDS_SEND_ADDRESS = 0x781;
-  
+  static const uint16_t MG_MARVEL_R_UDS_SEND_ADDRESS = 0x7E5;
 
+  //number of cells for each model
+  static const uint16_t MG5_MARVEL_R_NUM_CELLS = 96;
+ 
   //0x781 UDS diagnostic requests - Extended Session Control
   CAN_frame MG5_781_ses_ctrl = {.FD = false,
                                 .ext_ID = false,
